@@ -6,7 +6,7 @@ import {
   SvgFlowGraph,
   getSvgFlowGraphProps,
 } from "@statebacked/react-statechart";
-import { renderToString } from "react";
+import { renderToString } from "react-dom/server";
 
 const app = new App({
   appId: 390218,
@@ -87,7 +87,7 @@ export const prCommentingMachine = createMachine(
         }),
         always: [
           {
-            target: "processFiles",
+            target: "processFile",
             cond: (context, event) => context.prFiles.length > 0,
           },
         ],
