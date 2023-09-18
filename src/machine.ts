@@ -1,3 +1,6 @@
+// @ts-expect-error
+globalThis.document = {}; // ELK (via GWT) gets confused about its env with a defined self and undefined document
+
 import { assign, createMachine } from "xstate";
 import { App } from "octokit";
 import { extractMachinesFromFile } from "@xstate/machine-extractor";
@@ -7,11 +10,34 @@ import {
   getSvgFlowGraphProps,
 } from "@statebacked/react-statechart";
 import { renderToString } from "react-dom/server";
+import {
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
-const app = new App({
+const accessKeyId = "";
+const secretAccessKey = "";
+const machineImageBucketName =
+  "";
+const region = "us-west-1";
+const machineImageDomain = "";
+
+const privateKey = `
+`;
+
+const s3Client = new S3Client({
+  region,
+  apiVersion: "2023-09-18",
+  credentials: {
+    accessKeyId,
+    secretAccessKey,
+  },
+});
+
+const githubApp = new App({
   appId: 390218,
-  privateKey: `
-`,
+  privateKey,
 });
 
 type GithubEvent = {
@@ -38,10 +64,15 @@ type GithubEvent = {
 export const prCommentingMachine = createMachine(
   {
     schema: {
-      events: {} as {
-        type: "github.pull_request.opened";
-        githubEvent: GithubEvent;
-      },
+      events: {} as
+        | {
+            type: "github.pull_request.opened";
+            githubEvent: GithubEvent;
+          }
+        | {
+          type: "github.pull_request.synchronize";
+          githubEvent: GithubEvent;
+        },
     },
     context: {
       installationId: 0,
@@ -53,38 +84,48 @@ export const prCommentingMachine = createMachine(
       prFiles: [] as Array<string>,
     },
     initial: "start",
+    on: {
+      "github.pull_request.synchronize": {
+        target: "readFiles",
+        actions: assign({
+          installationId: (context, event) => event.githubEvent.installation.id,
+          repo: (context, event) => event.githubEvent.repository.name,
+          owner: (context, event) => event.githubEvent.repository.owner.login,
+          prNumber: (context, event) => event.githubEvent.pull_request.number,
+          prevCommit: (context, event) =>
+            event.githubEvent.pull_request.base.sha,
+          newCommit: (context, event) =>
+            event.githubEvent.pull_request.head.sha,
+        }),
+      },
+      "github.pull_request.opened": {
+        target: "readFiles",
+        actions: assign({
+          installationId: (context, event) => event.githubEvent.installation.id,
+          repo: (context, event) => event.githubEvent.repository.name,
+          owner: (context, event) => event.githubEvent.repository.owner.login,
+          prNumber: (context, event) => event.githubEvent.pull_request.number,
+          prevCommit: (context, event) =>
+            event.githubEvent.pull_request.base.sha,
+          newCommit: (context, event) =>
+            event.githubEvent.pull_request.head.sha,
+        }),
+      },
+    },
     states: {
-      start: {
-        on: {
-          "github.pull_request.opened": {
-            target: "readFiles",
+      start: {},
+      readFiles: {
+        invoke: {
+          src: getFilesForPr,
+          onDone: {
+            target: "updateFiles",
             actions: assign({
-              installationId: (context, event) =>
-                event.githubEvent.installation.id,
-              repo: (context, event) => event.githubEvent.repository.name,
-              owner: (context, event) =>
-                event.githubEvent.repository.owner.login,
-              prNumber: (context, event) =>
-                event.githubEvent.pull_request.number,
-              prevCommit: (context, event) =>
-                event.githubEvent.pull_request.base.sha,
-              newCommit: (context, event) =>
-                event.githubEvent.pull_request.head.sha,
+              prFiles: (context, event) => event.data,
             }),
           },
         },
       },
-      readFiles: {
-        invoke: {
-          src: getFileContentsUrlsForPr,
-          onDone: "updateFiles",
-        },
-      },
       updateFiles: {
-        entry: assign({
-          // @ts-expect-error
-          prFileContentsUrls: (context, event) => event.data,
-        }),
         always: [
           {
             target: "processFile",
@@ -98,11 +139,11 @@ export const prCommentingMachine = createMachine(
           onDone: "processedFile",
           onError: "processedFile",
         },
-      },
-      processedFile: {
-        entry: assign({
+        exit: assign({
           prFiles: (context, event) => context.prFiles.slice(0, -1),
         }),
+      },
+      processedFile: {
         always: [
           {
             target: "processFile",
@@ -111,24 +152,22 @@ export const prCommentingMachine = createMachine(
           { target: "done" },
         ],
       },
-      done: {
-        type: "final",
-      },
+      done: {},
     },
   },
   {
     services: {
-      getFileContentsUrlsForPr,
+      getFileContentsUrlsForPr: getFilesForPr,
       processFile,
     },
   }
 );
 
-async function getFileContentsUrlsForPr(
+async function getFilesForPr(
   { repo, owner, prNumber, installationId }: any,
   event: any
 ) {
-  const octokit = await app.getInstallationOctokit(installationId);
+  const octokit = await githubApp.getInstallationOctokit(installationId);
 
   const files = await octokit.rest.pulls.listFiles({
     owner,
@@ -148,7 +187,7 @@ async function processFile(
 ) {
   const path = prFiles[prFiles.length - 1];
 
-  const octokit = await app.getInstallationOctokit(installationId);
+  const octokit = await githubApp.getInstallationOctokit(installationId);
 
   const fileContents = await octokit.rest.repos.getContent({
     owner,
@@ -163,32 +202,59 @@ async function processFile(
     .map((line) => Buffer.from(line, "base64").toString("utf8"))
     .join("");
 
-  const svgsAndLines: Array<{ svg: string; line: number }> = [];
-
   const machines = extractMachinesFromFile(fileContent);
-  for (const machine of machines?.machines ?? []) {
-    if (!machine) {
-      continue;
-    }
-
-    const c = machine.toConfig();
-    if (!c) {
-      continue;
-    }
-
-    const line = machine.machineCallResult.node.loc?.start?.line;
-    if (line === undefined) {
-      continue;
-    }
-
-    const flow = xstate.machineToFlow(createMachine(c as any));
-    const props = await getSvgFlowGraphProps({ flow, direction: "horizontal" });
-    const svg = renderToString(SvgFlowGraph(props));
-    svgsAndLines.push({ svg, line });
-  }
 
   await Promise.all(
-    svgsAndLines.map(({ svg, line }) => {
+    (machines?.machines ?? []).map(async (machine) => {
+      if (!machine) {
+        return;
+      }
+
+      const c = machine.toConfig();
+      if (!c) {
+        return;
+      }
+
+      const line = machine.machineCallResult.node.loc?.start?.line;
+      if (line === undefined) {
+        return;
+      }
+
+      const flow = xstate.machineToFlow(createMachine(c as any));
+      const props = await getSvgFlowGraphProps({
+        flow,
+        direction: "horizontal",
+      });
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>
+${renderToString(SvgFlowGraph(props)).replace("<svg", "<svg xmlns='http://www.w3.org/2000/svg'")}`;
+      const hash = Buffer.from(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(svg))
+      ).toString("base64url");
+
+      const key = `${hash}.svg`;
+
+      const exists = await s3Client
+        .send(
+          new HeadObjectCommand({
+            Bucket: machineImageBucketName,
+            Key: key,
+          })
+        )
+        .then(() => true)
+        .catch(() => false);
+
+      if (!exists) {
+        await s3Client.send(
+          new PutObjectCommand({
+            Bucket: machineImageBucketName,
+            Key: key,
+            Body: svg,
+            ContentType: "image/svg+xml",
+            CacheControl: "public, max-age=31536000, immutable",
+          })
+        );
+      }
+
       return octokit.rest.pulls.createReviewComment({
         owner,
         repo,
@@ -196,7 +262,13 @@ async function processFile(
         commit_id: newCommit,
         path,
         line,
-        body: svg,
+        body: `Here's your state machine:
+        
+![${
+          flow.name ?? "Your state machine"
+        }](https://${machineImageDomain}/${key})
+
+From your friends at [State Backed](https://www.statebacked.dev), the fastest way to deploy state machines to the cloud.`,
       });
     })
   );
