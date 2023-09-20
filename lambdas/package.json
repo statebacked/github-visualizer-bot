@@ -1,0 +1,28 @@
+{
+  "name": "@statebacked/github-visualizer-bot-lambdas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GitHub visualizer bot lambdas",
+  "main": "dist/index.js",
+  "sideEffects": false,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc --strict --declaration --module commonjs --outDir dist",
+    "prettier": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint src"
+  },
+  "author": "Adam Berger <adam@statebacked.dev>",
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.121",
+    "@types/node": "^20.3.2",
+    "@typescript-eslint/eslint-plugin": "^5.60.1",
+    "@typescript-eslint/parser": "^5.60.1",
+    "eslint": "^8.43.0",
+    "prettier": "^2.8.8",
+    "typescript": "^5.1.6"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.414.0",
+    "octokit": "^3.1.0"
+  }
+}

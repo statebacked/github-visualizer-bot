@@ -15,16 +15,14 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-
-const accessKeyId = "";
-const secretAccessKey = "";
-const machineImageBucketName =
-  "";
-const region = "us-west-1";
-const machineImageDomain = "";
-
-const privateKey = `
-`;
+import {
+  accessKeyId,
+  machineImageBucketName,
+  machineImageDomain,
+  privateKey,
+  region,
+  secretAccessKey,
+} from "./secret";
 
 const s3Client = new S3Client({
   region,
@@ -70,9 +68,9 @@ export const prCommentingMachine = createMachine(
             githubEvent: GithubEvent;
           }
         | {
-          type: "github.pull_request.synchronize";
-          githubEvent: GithubEvent;
-        },
+            type: "github.pull_request.synchronize";
+            githubEvent: GithubEvent;
+          },
     },
     context: {
       installationId: 0,
@@ -226,7 +224,10 @@ async function processFile(
         direction: "horizontal",
       });
       const svg = `<?xml version="1.0" encoding="UTF-8"?>
-${renderToString(SvgFlowGraph(props)).replace("<svg", "<svg xmlns='http://www.w3.org/2000/svg'")}`;
+${renderToString(SvgFlowGraph(props)).replace(
+  "<svg",
+  "<svg xmlns='http://www.w3.org/2000/svg'"
+)}`;
       const hash = Buffer.from(
         await crypto.subtle.digest("SHA-256", new TextEncoder().encode(svg))
       ).toString("base64url");
@@ -264,9 +265,7 @@ ${renderToString(SvgFlowGraph(props)).replace("<svg", "<svg xmlns='http://www.w3
         line,
         body: `Here's your state machine:
         
-![${
-          flow.name ?? "Your state machine"
-        }](https://${machineImageDomain}/${key})
+![${flow.name ?? "Your state machine"}](https://${machineImageDomain}/${key})
 
 From your friends at [State Backed](https://www.statebacked.dev), the fastest way to deploy state machines to the cloud.`,
       });
