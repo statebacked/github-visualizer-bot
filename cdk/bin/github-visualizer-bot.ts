@@ -11,9 +11,9 @@ import { GithubVisualizerBotAssetsCertStack } from "../lib/github-visualizer-bot
 const app = new cdk.App();
 
 const props = {
-    env: {
-        region: "us-west-1",
-    }
+  env: {
+    region: "us-west-1",
+  },
 };
 
 const hostedZoneStack = new GithubVisualizerHostedZoneStack(
@@ -22,16 +22,16 @@ const hostedZoneStack = new GithubVisualizerHostedZoneStack(
   props
 );
 const assetsCertStack = new GithubVisualizerBotAssetsCertStack(
-    app,
-    "GithubVisualizerBotAssetsCertStack",
-    {
-        ...props,
-        env: {
-            region: "us-east-1",
-        },
-        crossRegionReferences: true,
-        hostedZone: hostedZoneStack.hostedZone,
-    }
+  app,
+  "GithubVisualizerBotAssetsCertStack",
+  {
+    ...props,
+    env: {
+      region: "us-east-1",
+    },
+    crossRegionReferences: true,
+    hostedZone: hostedZoneStack.hostedZone,
+  }
 );
 const assetsStack = new GithubVisualizerBotAssetsStack(
   app,

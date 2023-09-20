@@ -30,16 +30,18 @@ export class GithubVisualizerAdminApiStack extends cdk.Stack {
       }
     );
 
+    const domain = new apigw.DomainName(
+      this,
+      "GithubVisualizerAdminApiDomainName",
+      {
+        domainName,
+        certificate,
+      }
+    );
+
     const api = new apigw.HttpApi(this, "GithubVisualizerAdminApi", {
       defaultDomainMapping: {
-        domainName: new apigw.DomainName(
-          this,
-          "GithubVisualizerAdminApiDomainName",
-          {
-            domainName,
-            certificate,
-          }
-        ),
+        domainName: domain,
       },
       corsPreflight: {
         allowCredentials: false,
@@ -50,5 +52,16 @@ export class GithubVisualizerAdminApiStack extends cdk.Stack {
       },
     });
     this.api = api;
+
+    new route53.ARecord(this, "GithubVisualizerBotAssetsRecord", {
+      zone: props.hostedZone,
+      recordName: "assets",
+      target: route53.RecordTarget.fromAlias(
+        new route53Targets.ApiGatewayv2DomainProperties(
+          domain.regionalDomainName,
+          domain.regionalHostedZoneId
+        )
+      ),
+    });
   }
 }

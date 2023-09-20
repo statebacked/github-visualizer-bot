@@ -52,7 +52,7 @@ export class GithubVisualizerBotAssetsStack extends cdk.Stack {
 
     new route53.ARecord(this, "GithubVisualizerBotAssetsRecord", {
       zone: props.hostedZone,
-      recordName: "webhooks",
+      recordName: "assets",
       target: route53.RecordTarget.fromAlias(
         new route53Targets.CloudFrontTarget(distribution)
       ),
