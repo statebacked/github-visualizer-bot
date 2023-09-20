@@ -55,7 +55,7 @@ export class GithubVisualizerAdminApiStack extends cdk.Stack {
 
     new route53.ARecord(this, "GithubVisualizerBotAssetsRecord", {
       zone: props.hostedZone,
-      recordName: "assets",
+      recordName: "admin",
       target: route53.RecordTarget.fromAlias(
         new route53Targets.ApiGatewayv2DomainProperties(
           domain.regionalDomainName,
