@@ -23,6 +23,8 @@ import {
   region,
   secretAccessKey,
 } from "./secret";
+import parseDiff from "parse-diff";
+import IntervalTree from "node-interval-tree";
 
 const s3Client = new S3Client({
   region,
@@ -59,112 +61,116 @@ type GithubEvent = {
   };
 };
 
-export const prCommentingMachine = createMachine(
-  {
-    schema: {
-      events: {} as
-        | {
-            type: "github.pull_request.opened";
-            githubEvent: GithubEvent;
-          }
-        | {
-            type: "github.pull_request.synchronize";
-            githubEvent: GithubEvent;
-          },
-    },
-    context: {
-      installationId: 0,
-      repo: "",
-      owner: "",
-      prNumber: 0,
-      prevCommit: "",
-      newCommit: "",
-      prFiles: [] as Array<string>,
-    },
-    initial: "start",
-    on: {
-      "github.pull_request.synchronize": {
-        target: "readFiles",
-        actions: assign({
-          installationId: (context, event) => event.githubEvent.installation.id,
-          repo: (context, event) => event.githubEvent.repository.name,
-          owner: (context, event) => event.githubEvent.repository.owner.login,
-          prNumber: (context, event) => event.githubEvent.pull_request.number,
-          prevCommit: (context, event) =>
-            event.githubEvent.pull_request.base.sha,
-          newCommit: (context, event) =>
-            event.githubEvent.pull_request.head.sha,
-        }),
-      },
-      "github.pull_request.opened": {
-        target: "readFiles",
-        actions: assign({
-          installationId: (context, event) => event.githubEvent.installation.id,
-          repo: (context, event) => event.githubEvent.repository.name,
-          owner: (context, event) => event.githubEvent.repository.owner.login,
-          prNumber: (context, event) => event.githubEvent.pull_request.number,
-          prevCommit: (context, event) =>
-            event.githubEvent.pull_request.base.sha,
-          newCommit: (context, event) =>
-            event.githubEvent.pull_request.head.sha,
-        }),
-      },
-    },
-    states: {
-      start: {},
-      readFiles: {
-        invoke: {
-          src: getFilesForPr,
-          onDone: {
-            target: "updateFiles",
-            actions: assign({
-              prFiles: (context, event) => event.data,
-            }),
-          },
+type Context = {
+  installationId: number;
+  repo: string;
+  owner: string;
+  prNumber: number;
+  prevCommit: string;
+  newCommit: string;
+  prFiles: Array<{
+    path: string;
+    changedLines: Array<{ from: number; to: number }>;
+  }>;
+};
+
+export const prCommentingMachine = createMachine({
+  schema: {
+    events: {} as
+      | {
+          type: "github.pull_request.opened";
+          githubEvent: GithubEvent;
+        }
+      | {
+          type: "github.pull_request.synchronize";
+          githubEvent: GithubEvent;
         },
-      },
-      updateFiles: {
-        always: [
-          {
-            target: "processFile",
-            cond: (context, event) => context.prFiles.length > 0,
-          },
-        ],
-      },
-      processFile: {
-        invoke: {
-          src: processFile,
-          onDone: "processedFile",
-          onError: "processedFile",
-        },
-        exit: assign({
-          prFiles: (context, event) => context.prFiles.slice(0, -1),
-        }),
-      },
-      processedFile: {
-        always: [
-          {
-            target: "processFile",
-            cond: (context, event) => context.prFiles.length > 0,
-          },
-          { target: "done" },
-        ],
-      },
-      done: {},
+    context: {} as Context,
+  },
+  context: {
+    installationId: 0,
+    repo: "",
+    owner: "",
+    prNumber: 0,
+    prevCommit: "",
+    newCommit: "",
+    prFiles: [],
+  },
+  initial: "start",
+  on: {
+    "github.pull_request.synchronize": {
+      target: "readFiles",
+      actions: assign({
+        installationId: (_context, event) => event.githubEvent.installation.id,
+        repo: (_context, event) => event.githubEvent.repository.name,
+        owner: (_context, event) => event.githubEvent.repository.owner.login,
+        prNumber: (_context, event) => event.githubEvent.pull_request.number,
+        prevCommit: (_context, event) =>
+          event.githubEvent.pull_request.base.sha,
+        newCommit: (_context, event) => event.githubEvent.pull_request.head.sha,
+      }),
+    },
+    "github.pull_request.opened": {
+      target: "readFiles",
+      actions: assign({
+        installationId: (_context, event) => event.githubEvent.installation.id,
+        repo: (_context, event) => event.githubEvent.repository.name,
+        owner: (_context, event) => event.githubEvent.repository.owner.login,
+        prNumber: (_context, event) => event.githubEvent.pull_request.number,
+        prevCommit: (_context, event) =>
+          event.githubEvent.pull_request.base.sha,
+        newCommit: (_context, event) => event.githubEvent.pull_request.head.sha,
+      }),
     },
   },
-  {
-    services: {
-      getFileContentsUrlsForPr: getFilesForPr,
-      processFile,
+  states: {
+    start: {},
+    readFiles: {
+      invoke: {
+        src: getFilesForPr,
+        onDone: {
+          target: "receivedFiles",
+          actions: assign({
+            prFiles: (context, event) => event.data,
+          }),
+        },
+      },
     },
-  }
-);
+    receivedFiles: {
+      always: [
+        {
+          target: "processFile",
+          cond: (context, event) => context.prFiles.length > 0,
+        },
+      ],
+    },
+    processFile: {
+      invoke: {
+        src: processFile,
+        onDone: "processedFile",
+        onError: "processedFile",
+      },
+      exit: assign({
+        prFiles: (context, event) => context.prFiles.slice(0, -1),
+      }),
+    },
+    processedFile: {
+      always: [
+        {
+          target: "processFile",
+          cond: (context, event) => context.prFiles.length > 0,
+        },
+        { target: "done" },
+      ],
+    },
+    done: {},
+  },
+});
 
 async function getFilesForPr(
-  { repo, owner, prNumber, installationId }: any,
-  event: any
-) {
+  { repo, owner, prNumber, installationId }: Context,
+  _event: any
+): Promise<Context["prFiles"]> {
   const octokit = await githubApp.getInstallationOctokit(installationId);
 
   const files = await octokit.rest.pulls.listFiles({
@@ -176,14 +182,28 @@ async function getFilesForPr(
 
   return files.data
     .filter((file) => ["added", "modified", "changed"].includes(file.status))
-    .map((file) => file.filename);
+    .map((file) => {
+      const parsed = parseDiff(file.patch);
+      return {
+        path: file.filename,
+        changedLines: parsed[0].chunks.map((chunk) => ({
+          from: chunk.newStart,
+          to: chunk.newStart + chunk.newLines - 1,
+        })),
+      };
+    });
 }
 
 async function processFile(
-  { repo, owner, prNumber, newCommit, installationId, prFiles }: any,
-  event: any
+  { repo, owner, prNumber, newCommit, installationId, prFiles }: Context,
+  _event: any
 ) {
-  const path = prFiles[prFiles.length - 1];
+  const { path, changedLines } = prFiles[prFiles.length - 1];
+
+  const changedIntervals = new IntervalTree<boolean>();
+  for (const { from, to } of changedLines) {
+    changedIntervals.insert(from, to, true);
+  }
 
   const octokit = await githubApp.getInstallationOctokit(installationId);
 
@@ -213,8 +233,19 @@ async function processFile(
         return;
       }
 
-      const line = machine.machineCallResult.node.loc?.start?.line;
-      if (line === undefined) {
+      const startLine = machine.machineCallResult.node.loc?.start?.line;
+      if (startLine === undefined) {
+        return;
+      }
+
+      const endLine = machine.machineCallResult.node.loc?.end?.line;
+
+      if (
+        typeof endLine === "undefined" ||
+        changedIntervals.search(startLine, endLine)?.length === 0
+      ) {
+        console.log("skipping", path, startLine, endLine);
+        // not changed
         return;
       }
 
@@ -262,7 +293,7 @@ ${renderToString(SvgFlowGraph(props)).replace(
         pull_number: prNumber,
         commit_id: newCommit,
         path,
-        line,
+        line: startLine,
         body: `Here's your state machine:
         
 ![${flow.name ?? "Your state machine"}](https://${machineImageDomain}/${key})
