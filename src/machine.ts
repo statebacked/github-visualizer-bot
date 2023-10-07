@@ -181,17 +181,24 @@ async function getFilesForPr(
   });
 
   return files.data
-    .filter((file) => ["added", "modified", "changed"].includes(file.status))
+    .filter(
+      (file) =>
+        ["js", "ts", "tsx", "jsx"].some((ext) => file.filename.endsWith(ext)) &&
+        ["added", "modified", "changed"].includes(file.status)
+    )
     .map((file) => {
       const parsed = parseDiff(file.patch);
-      return {
-        path: file.filename,
-        changedLines: parsed[0].chunks.map((chunk) => ({
-          from: chunk.newStart,
-          to: chunk.newStart + chunk.newLines - 1,
-        })),
-      };
-    });
+      return parsed && parsed.length > 0
+        ? {
+            path: file.filename,
+            changedLines: parsed[0].chunks.map((chunk) => ({
+              from: chunk.newStart,
+              to: chunk.newStart + chunk.newLines - 1,
+            })),
+          }
+        : null;
+    })
+    .filter(<T>(f: T | null): f is T => !!f);
 }
 
 async function processFile(
