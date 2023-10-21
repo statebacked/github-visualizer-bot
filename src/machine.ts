@@ -140,8 +140,9 @@ export const prCommentingMachine = createMachine({
       always: [
         {
           target: "processFile",
-          cond: (context, event) => context.prFiles.length > 0,
+          cond: (context) => context.prFiles.length > 0,
         },
+        { target: "done" },
       ],
     },
     processFile: {
